@@ -25,6 +25,7 @@
 # Copyright (c) 2005-2010 Greg Hewgill and contributors
 
 import argparse, codecs, os, pickle, pprint, re, shutil, sys, urllib2, xml.dom.minidom, xmlrpclib
+import urllib
 from xml.sax import saxutils
 
 MimeExtensions = {
@@ -32,15 +33,6 @@ MimeExtensions = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
 }
-
-try:
-    from hashlib import md5
-except ImportError:
-    import md5 as _md5
-    md5 = _md5.new
-
-def calcchallenge(challenge, password):
-    return md5(challenge+md5(password).hexdigest()).hexdigest()
 
 def flatresponse(response):
     r = {}
@@ -57,22 +49,12 @@ def flatresponse(response):
     return r
 
 def getljsession(server, username, password):
-    r = urllib2.urlopen(server+"/interface/flat", "mode=getchallenge")
-    response = flatresponse(r)
-    r.close()
-    r = urllib2.urlopen(server+"/interface/flat", "mode=sessiongenerate&user=%s&auth_method=challenge&auth_challenge=%s&auth_response=%s" % (username, response['challenge'], calcchallenge(response['challenge'], password)))
+    """Log in with password and get session cookie."""
+    qs = "mode=sessiongenerate&user=%s&auth_method=clear&password=%s" % (urllib.quote(username), urllib.quote(password))
+    r = urllib2.urlopen(server+"/interface/flat", qs)
     response = flatresponse(r)
     r.close()
     return response['ljsession']
-
-def dochallenge(server, params, password):
-    challenge = server.LJ.XMLRPC.getchallenge()
-    params.update({
-        'auth_method': "challenge",
-        'auth_challenge': challenge['challenge'],
-        'auth_response': calcchallenge(challenge['challenge'], password)
-    })
-    return params
 
 def dumpelement(f, name, e):
     f.write("<%s>\n" % name)
@@ -134,6 +116,10 @@ def ljdump(Server, Username, Password, Journal, verbose=True):
 
     server = xmlrpclib.ServerProxy(Server+"/interface/xmlrpc")
 
+    def authed(params):
+        """Transform API call params to include authorization."""
+        return dict(auth_method='clear', username=Username, password=Password, **params)
+
     newentries = 0
     newcomments = 0
     errors = 0
@@ -157,23 +143,21 @@ def ljdump(Server, Username, Password, Journal, verbose=True):
         pass
     origlastsync = lastsync
 
-    r = server.LJ.XMLRPC.login(dochallenge(server, {
-        'username': Username,
+    r = server.LJ.XMLRPC.login(authed({
         'ver': 1,
         'getpickws': 1,
         'getpickwurls': 1,
-    }, Password))
+    }))
     userpics = dict(zip(map(str, r['pickws']), r['pickwurls']))
     if r['defaultpicurl']:
         userpics['*'] = r['defaultpicurl']
 
     while True:
-        r = server.LJ.XMLRPC.syncitems(dochallenge(server, {
-            'username': Username,
+        r = server.LJ.XMLRPC.syncitems(authed({
             'ver': 1,
             'lastsync': lastsync,
             'usejournal': Journal,
-        }, Password))
+        }))
         #pprint.pprint(r)
         if len(r['syncitems']) == 0:
             break
@@ -181,13 +165,12 @@ def ljdump(Server, Username, Password, Journal, verbose=True):
             if item['item'][0] == 'L':
                 print "Fetching journal entry %s (%s)" % (item['item'], item['action'])
                 try:
-                    e = server.LJ.XMLRPC.getevents(dochallenge(server, {
-                        'username': Username,
+                    e = server.LJ.XMLRPC.getevents(authed({
                         'ver': 1,
                         'selecttype': "one",
                         'itemid': item['item'][2:],
                         'usejournal': Journal,
-                    }, Password))
+                    }))
                     if e['events']:
                         writedump("%s/%s" % (Journal, item['item']), e['events'][0])
                         newentries += 1
@@ -209,12 +192,11 @@ def ljdump(Server, Username, Password, Journal, verbose=True):
     # interact. Therefore we just do the above slow one-at-a-time method.
 
     #while True:
-    #    r = server.LJ.XMLRPC.getevents(dochallenge(server, {
-    #        'username': Username,
+    #    r = server.LJ.XMLRPC.getevents(authed({
     #        'ver': 1,
     #        'selecttype': "syncitems",
     #        'lastsync': lastsync,
-    #    }, Password))
+    #    }))
     #    pprint.pprint(r)
     #    if len(r['events']) == 0:
     #        break
