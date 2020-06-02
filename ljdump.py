@@ -25,6 +25,7 @@
 # Copyright (c) 2005-2010 Greg Hewgill and contributors
 
 import argparse, codecs, os, pickle, pprint, re, shutil, sys, urllib2, xml.dom.minidom, xmlrpclib
+from getpass import getpass
 import urllib
 from xml.sax import saxutils
 
@@ -351,15 +352,15 @@ if __name__ == "__main__":
         config = xml.dom.minidom.parse("ljdump.config")
         server = config.documentElement.getElementsByTagName("server")[0].childNodes[0].data
         username = config.documentElement.getElementsByTagName("username")[0].childNodes[0].data
-        password = config.documentElement.getElementsByTagName("password")[0].childNodes[0].data
-        journals = config.documentElement.getElementsByTagName("journal")
-        if journals:
-            for e in journals:
-                ljdump(server, username, password, e.childNodes[0].data, args.verbose)
+        password_els = config.documentElement.getElementsByTagName("password")
+        if len(password_els) > 0:
+            password = password_els[0].childNodes[0].data
         else:
-            ljdump(server, username, password, username, args.verbose)
+            password = getpass("Password: ")
+        journals = [e.childNodes[0].data for e in config.documentElement.getElementsByTagName("journal")]
+        if not journals:
+            journals = [username]
     else:
-        from getpass import getpass
         print "ljdump - livejournal archiver"
         print
         default_server = "https://livejournal.com"
@@ -377,7 +378,10 @@ if __name__ == "__main__":
         journal = raw_input("Journal to back up (or hit return to back up '%s'): " % username)
         print
         if journal:
-            ljdump(server, username, password, journal, args.verbose)
+            journals = [journal]
         else:
-            ljdump(server, username, password, username, args.verbose)
+            journals = [username]
+
+    for journal in journals:
+        ljdump(server, username, password, journal, args.verbose)
 # vim:ts=4 et:	

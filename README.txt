@@ -30,6 +30,7 @@ The configuration settings are:
   password - The account password. This password is sent in the clear,
              so if you specify an alternative server, ensure you use
              a URL starting with https:// so the connection is encrypted.
+             If not provided here, will prompt for it when run.
 
   journal - Optional: The journal to download entries from. If this is
             not specified, the "username" journal is downloaded. If this
