@@ -1,4 +1,5 @@
 #!/usr/bin/python
+# -*- coding: utf-8 -*-
 #
 # ljdump.py - livejournal archiver
 # Greg Hewgill <greg@hewgill.com> https://hewgill.com/
@@ -28,6 +29,8 @@ import argparse, codecs, os, pickle, pprint, re, shutil, sys, urllib2, xml.dom.m
 from getpass import getpass
 import urllib
 from xml.sax import saxutils
+from datetime import *
+
 
 MimeExtensions = {
     "image/gif": ".gif",
@@ -156,10 +159,9 @@ def ljdump(Server, Username, Password, Journal, verbose=True):
     while True:
         r = server.LJ.XMLRPC.syncitems(authed({
             'ver': 1,
-            'lastsync': lastsync,
+            # 'lastsync': lastsync, # this one is not helpful when you want update existing stuff
             'usejournal': Journal,
         }))
-        #pprint.pprint(r)
         if len(r['syncitems']) == 0:
             break
         for item in r['syncitems']:
@@ -173,8 +175,23 @@ def ljdump(Server, Username, Password, Journal, verbose=True):
                         'usejournal': Journal,
                     }))
                     if e['events']:
-                        writedump("%s/%s" % (Journal, item['item']), e['events'][0])
+                        ev = e['events'][0]
                         newentries += 1
+
+                        # Process the event
+                        pprint.pprint(ev)
+                        ev['event'] = re.sub('http://(edu.|staff.|sun.|)mmcs.(sfedu|rsu).ru/~ulysses',
+                                             'https://a-pelenitsyn.github.io/Files',
+                                             str(ev['event']))
+
+                        # Store locally
+                        writedump("%s/%s" % (Journal, item['item']), ev)
+
+                        # Write back the event to server
+                        d = datetime.strptime(ev['eventtime'], '%Y-%m-%d %H:%M:%S')
+                        ev1 = dict(lineendings="pc", year=d.year, mon=d.month, day=d.day,
+                                   hour=d.hour, min=d.minute, **ev)
+                        r1 = server.LJ.XMLRPC.editevent(authed(ev1))
                     else:
                         print "Unexpected empty item: %s" % item['item']
                         errors += 1
@@ -184,6 +201,8 @@ def ljdump(Server, Username, Password, Journal, verbose=True):
                     errors += 1
             lastsync = item['time']
             writelast(Journal, lastsync, lastmaxid)
+        print "Good now, bye!"
+        os._exit(os.EX_OK)
 
     # The following code doesn't work because the server rejects our repeated calls.
     # https://www.livejournal.com/doc/server/ljp.csp.xml-rpc.getevents.html
